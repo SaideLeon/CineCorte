@@ -15,7 +15,14 @@ class SecurePreferencesHelper(context: Context) {
 
     fun getGroqApiKey(): String {
         val encoded = prefs.getString(KEY_GROQ_API_KEY, "") ?: ""
-        if (encoded.isBlank()) return ""
+        if (encoded.isBlank()) {
+            return try {
+                val buildConfigKey = com.example.BuildConfig.GROQ_API_KEY
+                if (!buildConfigKey.isNullOrBlank() && buildConfigKey != "your_api_key_here") buildConfigKey else ""
+            } catch (e: Throwable) {
+                ""
+            }
+        }
         return try {
             String(Base64.decode(encoded, Base64.DEFAULT), StandardCharsets.UTF_8)
         } catch (e: Exception) {
