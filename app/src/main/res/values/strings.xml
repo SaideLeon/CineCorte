@@ -1,0 +1,58 @@
+<resources>
+    <string name="app_name">CineCorte</string>
+    <string name="tagline">Editor de Vídeo Profissional</string>
+    <string name="nav_editor">Editor</string>
+    <string name="nav_projects">Projetos</string>
+    <string name="nav_export">Exportar</string>
+
+    <!-- Ações da Linha do Tempo -->
+    <string name="action_split">Cortar</string>
+    <string name="action_delete">Eliminar</string>
+    <string name="action_duplicate">Duplicar</string>
+    <string name="action_separate_audio">Separar Áudio</string>
+    <string name="action_mute">Silenciar</string>
+    <string name="action_unmute">Ativar Som</string>
+    <string name="action_undo">Desfazer</string>
+    <string name="action_redo">Refazer</string>
+    <string name="action_speed">Velocidade</string>
+    <string name="action_reset">Repor</string>
+    <string name="action_transitions">Transições</string>
+    <string name="action_audio_effects">Áudio</string>
+    <string name="action_transform">Transformar</string>
+
+    <!-- Importação -->
+    <string name="import_video">Importar Vídeo</string>
+    <string name="import_audio">Importar Áudio</string>
+    <string name="no_media_selected">Nenhum vídeo importado</string>
+    <string name="add_clip_prompt">Toca no botão abaixo para importar o primeiro clipe</string>
+
+    <!-- Faixas de Áudio -->
+    <string name="track_video">Vídeo</string>
+    <string name="track_voice">Voz / Narração</string>
+    <string name="track_music">Música de Fundo</string>
+    <string name="track_ambient">Som Ambiente</string>
+    <string name="track_sfx">Efeito Sonoro</string>
+
+    <!-- Exportação -->
+    <string name="export_title">Exportação de Vídeo</string>
+    <string name="export_button">Iniciar Exportação</string>
+    <string name="export_format">Formato</string>
+    <string name="export_resolution">Resolução</string>
+    <string name="export_fps">Taxa de Quadros (FPS)</string>
+    <string name="export_original_preserved">100% Original Preservado</string>
+    <string name="export_foreground_service_title">Exportando Vídeo</string>
+    <string name="export_foreground_service_desc">A processar os quadros e misturar áudio...</string>
+
+    <!-- Auto-Remoção de Pausas / Silêncio -->
+    <string name="action_remove_silence">Auto Pausas</string>
+    <string name="silence_removal_title">Auto-Remoção de Silêncios</string>
+    <string name="silence_removal_desc">Deteta e elimina pausas mortas na narração automaticamente</string>
+    <string name="silence_threshold">Sensibilidade de Silêncio</string>
+    <string name="silence_min_duration">Duração Mínima da Pausa</string>
+    <string name="silence_padding">Margem de Segurança (Padding)</string>
+    <string name="silence_apply_button">Remover Silêncios Marcados</string>
+
+    <!-- Notificações -->
+    <string name="notification_channel_name">Exportação de Vídeo</string>
+    <string name="notification_channel_desc">Notificações de progresso da exportação em segundo plano</string>
+</resources>

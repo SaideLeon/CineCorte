@@ -1,0 +1,6 @@
+{
+  "name": "CineCorte",
+  "description": "Editor de vídeo não linear profissional com preservação total de dimensões originais, múltiplas faixas de áudio, corte e exportação de alta performance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
