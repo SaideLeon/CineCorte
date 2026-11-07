@@ -20,6 +20,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+import com.example.service.GroqWhisperService
+import com.example.util.AudioExtractorHelper
+import com.example.util.RepetitionDetector
+import com.example.util.SecurePreferencesHelper
+
 enum class EditorSheet {
     NONE,
     PROPERTIES,
@@ -28,7 +33,9 @@ enum class EditorSheet {
     KEYFRAMES,
     EXPORT,
     PROJECTS,
-    SILENCE_REMOVAL
+    SILENCE_REMOVAL,
+    AUTO_CUT_WIZARD,
+    SETTINGS
 }
 
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -82,6 +89,31 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _isDetectingSilences = MutableStateFlow(false)
     val isDetectingSilences = _isDetectingSilences.asStateFlow()
+
+    private val securePrefs = SecurePreferencesHelper(application)
+
+    private val _groqApiKey = MutableStateFlow(securePrefs.getGroqApiKey())
+    val groqApiKey = _groqApiKey.asStateFlow()
+
+    private val _hasAcceptedGroqConsent = MutableStateFlow(securePrefs.hasAcceptedGroqConsent())
+    val hasAcceptedGroqConsent = _hasAcceptedGroqConsent.asStateFlow()
+
+    private val _autoCutStep = MutableStateFlow(AutoCutStep.STEP_A_SILENCE)
+    val autoCutStep = _autoCutStep.asStateFlow()
+
+    private val _repetitionConfig = MutableStateFlow(RepetitionDetectionConfig())
+    val repetitionConfig = _repetitionConfig.asStateFlow()
+
+    private val _repetitionSuggestions = MutableStateFlow<List<RepetitionCutSuggestion>>(emptyList())
+    val repetitionSuggestions = _repetitionSuggestions.asStateFlow()
+
+    private val _isTranscribing = MutableStateFlow(false)
+    val isTranscribing = _isTranscribing.asStateFlow()
+
+    private val _transcriptionProgressText = MutableStateFlow("")
+    val transcriptionProgressText = _transcriptionProgressText.asStateFlow()
+
+    private var cachedTranscriptionWords: List<WordTimestamp>? = null
 
     private var playbackJob: Job? = null
 
@@ -749,9 +781,216 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         _snackMessage.value = "${toRemove.size} pausas removidas! Poupaste ${secondsSaved}s de silêncio."
     }
 
+    // --- ASSISTENTE DE CORTE AUTOMÁTICO EM 2 ETAPAS (SILÊNCIOS + GROQ WHISPER) ---
+
+    fun openAutoCutWizard() {
+        if (_project.value.videoClips.isEmpty() && _project.value.audioTracks.all { it.clips.isEmpty() }) {
+            _snackMessage.value = "Importa um vídeo ou áudio antes de usar o Corte Automático."
+            return
+        }
+        _autoCutStep.value = AutoCutStep.STEP_A_SILENCE
+        runSilenceDetection(_silenceConfig.value)
+        openSheet(EditorSheet.AUTO_CUT_WIZARD)
+    }
+
+    fun setAutoCutStep(step: AutoCutStep) {
+        _autoCutStep.value = step
+    }
+
+    fun openSettings() {
+        openSheet(EditorSheet.SETTINGS)
+    }
+
+    fun saveGroqApiKey(apiKey: String) {
+        securePrefs.saveGroqApiKey(apiKey)
+        _groqApiKey.value = apiKey.trim()
+        _snackMessage.value = "Chave da Groq API guardada com segurança!"
+    }
+
+    fun acceptGroqConsent() {
+        securePrefs.setGroqConsentAccepted(true)
+        _hasAcceptedGroqConsent.value = true
+    }
+
+    fun updateRepetitionConfig(config: RepetitionDetectionConfig) {
+        _repetitionConfig.value = config
+        // Se já tiver palavras em cache, recalcula as sugestões sem gastar chamadas de rede
+        cachedTranscriptionWords?.let { words ->
+            _repetitionSuggestions.value = RepetitionDetector.findRepetitions(words, config)
+        }
+    }
+
+    fun toggleRepetitionSuggestion(id: String) {
+        _repetitionSuggestions.value = _repetitionSuggestions.value.map {
+            if (it.id == id) it.copy(isSelected = !it.isSelected) else it
+        }
+    }
+
+    fun selectAllRepetitions(selectAll: Boolean) {
+        _repetitionSuggestions.value = _repetitionSuggestions.value.map {
+            it.copy(isSelected = selectAll)
+        }
+    }
+
+    /**
+     * Toca 1.2 segundos antes do corte, salta o trecho repetido e toca 1.2 segundos depois
+     * para pré-visualização auditiva imediata da transição fluente.
+     */
+    fun previewCutAudio(startMs: Long, endMs: Long) {
+        playbackJob?.cancel()
+        val preStart = maxOf(0L, startMs - 1200L)
+        seekTo(preStart)
+        _isPlaying.value = true
+
+        playbackJob = viewModelScope.launch {
+            val jumpDelay = (startMs - preStart).coerceAtLeast(100L)
+            delay(jumpDelay)
+            seekTo(endMs + 30L)
+            delay(1200L)
+            _isPlaying.value = false
+        }
+    }
+
+    /**
+     * Inicia a extração de áudio da timeline e a chamada ao modelo Whisper na Groq API.
+     */
+    fun startTranscriptionAndRepetitionDetection(context: Context) {
+        val apiKey = _groqApiKey.value
+        if (apiKey.isBlank()) {
+            openSheet(EditorSheet.SETTINGS)
+            _snackMessage.value = "Insere primeiro a tua chave da Groq API."
+            return
+        }
+
+        viewModelScope.launch {
+            _isTranscribing.value = true
+            _transcriptionProgressText.value = "A extrair áudio da timeline..."
+
+            try {
+                val audioFile = AudioExtractorHelper.extractTimelineAudio(context, _project.value)
+                _transcriptionProgressText.value = "A enviar para a Groq Whisper (large-v3-turbo)..."
+
+                val service = GroqWhisperService()
+                val result = service.transcribeAudio(
+                    apiKey = apiKey,
+                    audioFile = audioFile,
+                    language = securePrefs.getLanguage()
+                )
+
+                _isTranscribing.value = false
+
+                result.fold(
+                    onSuccess = { response ->
+                        cachedTranscriptionWords = response.words
+                        val suggestions = RepetitionDetector.findRepetitions(response.words, _repetitionConfig.value)
+                        _repetitionSuggestions.value = suggestions
+                        if (suggestions.isEmpty()) {
+                            _snackMessage.value = "Transcrição concluída: nenhuma repetição ou gaguez detetada!"
+                        } else {
+                            _snackMessage.value = "${suggestions.size} repetições detetadas! Revê os cortes sugeridos."
+                        }
+                    },
+                    onFailure = { err ->
+                        _snackMessage.value = err.message ?: "Erro ao contactar a API da Groq."
+                    }
+                )
+            } catch (e: Exception) {
+                _isTranscribing.value = false
+                _snackMessage.value = e.message ?: "Falha ao processar áudio para transcrição."
+            }
+        }
+    }
+
+    /**
+     * Executa o corte atómico de todas as repetições selecionadas pelo utilizador.
+     * Preserva as dimensões 100% originais e consolida tudo numa única ação de Desfazer (Undo).
+     */
+    fun executeRepetitionCuts() {
+        val toCut = _repetitionSuggestions.value.filter { it.isSelected }.sortedBy { it.startMs }
+        if (toCut.isEmpty()) {
+            _snackMessage.value = "Nenhum corte selecionado."
+            return
+        }
+
+        pushHistory()
+
+        val totalDurationCutMs = toCut.sumOf { it.durationMs }
+        val currentVideoClips = _project.value.videoClips.toMutableList()
+        val newVideoClips = mutableListOf<VideoClip>()
+
+        var accumulatedTimelineMs = 0L
+        for (clip in currentVideoClips) {
+            val clipTimelineStart = accumulatedTimelineMs
+            val clipTimelineEnd = clipTimelineStart + clip.trimmedDurationMs
+            accumulatedTimelineMs = clipTimelineEnd
+
+            val relevantCuts = toCut.filter {
+                it.endMs > clipTimelineStart && it.startMs < clipTimelineEnd
+            }
+
+            if (relevantCuts.isEmpty()) {
+                newVideoClips.add(clip)
+                continue
+            }
+
+            var currentTimelineCursor = clipTimelineStart
+            var currentMediaOffsetMs = clip.startTrimMs
+
+            for (cut in relevantCuts) {
+                val cutStartInTimeline = maxOf(currentTimelineCursor, cut.startMs)
+                val cutEndInTimeline = minOf(clipTimelineEnd, cut.endMs)
+
+                if (cutStartInTimeline > currentTimelineCursor + 100L) {
+                    val pieceDurationTimeline = cutStartInTimeline - currentTimelineCursor
+                    val pieceMediaDuration = (pieceDurationTimeline * clip.speed).toLong()
+                    val piece = clip.copy(
+                        id = java.util.UUID.randomUUID().toString(),
+                        startTrimMs = currentMediaOffsetMs,
+                        endTrimMs = currentMediaOffsetMs + pieceMediaDuration
+                    )
+                    newVideoClips.add(piece)
+                }
+
+                val skippedDurationTimeline = cutEndInTimeline - cutStartInTimeline
+                val skippedMediaDuration = (skippedDurationTimeline * clip.speed).toLong()
+
+                currentTimelineCursor = cutEndInTimeline
+                currentMediaOffsetMs += (cutStartInTimeline - (clipTimelineStart + ((currentMediaOffsetMs - clip.startTrimMs) / clip.speed).toLong())) * clip.speed.toLong() + skippedMediaDuration
+            }
+
+            if (currentTimelineCursor < clipTimelineEnd - 100L) {
+                val remainingTimeline = clipTimelineEnd - currentTimelineCursor
+                val remainingMedia = (remainingTimeline * clip.speed).toLong()
+                val piece = clip.copy(
+                    id = java.util.UUID.randomUUID().toString(),
+                    startTrimMs = maxOf(0L, clip.endTrimMs - remainingMedia),
+                    endTrimMs = clip.endTrimMs
+                )
+                newVideoClips.add(piece)
+            }
+        }
+
+        val finalClips = if (newVideoClips.isNotEmpty()) newVideoClips else _project.value.videoClips
+
+        _project.value = _project.value.copy(
+            videoClips = finalClips,
+            lastModified = System.currentTimeMillis()
+        )
+
+        _selectedVideoClipId.value = finalClips.firstOrNull()?.id
+        _repetitionSuggestions.value = emptyList()
+        cachedTranscriptionWords = null
+        closeSheet()
+        autoSave()
+
+        val secondsSaved = String.format(java.util.Locale.US, "%.1f", totalDurationCutMs / 1000f)
+        _snackMessage.value = "${toCut.size} repetições cortadas! Poupaste ${secondsSaved}s de áudio redundante."
+    }
+
     private fun autoSave() {
         viewModelScope.launch {
             repository.saveProject(_project.value)
         }
     }
 }
+

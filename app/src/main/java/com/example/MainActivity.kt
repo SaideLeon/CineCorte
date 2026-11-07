@@ -64,6 +64,13 @@ class MainActivity : ComponentActivity() {
                 val detectedSilences by viewModel.detectedSilences.collectAsStateWithLifecycle()
                 val silenceConfig by viewModel.silenceConfig.collectAsStateWithLifecycle()
                 val isDetectingSilences by viewModel.isDetectingSilences.collectAsStateWithLifecycle()
+                val groqApiKey by viewModel.groqApiKey.collectAsStateWithLifecycle()
+                val hasAcceptedGroqConsent by viewModel.hasAcceptedGroqConsent.collectAsStateWithLifecycle()
+                val autoCutStep by viewModel.autoCutStep.collectAsStateWithLifecycle()
+                val repetitionConfig by viewModel.repetitionConfig.collectAsStateWithLifecycle()
+                val repetitionSuggestions by viewModel.repetitionSuggestions.collectAsStateWithLifecycle()
+                val isTranscribing by viewModel.isTranscribing.collectAsStateWithLifecycle()
+                val transcriptionProgressText by viewModel.transcriptionProgressText.collectAsStateWithLifecycle()
 
                 val snackbarHostState = remember { SnackbarHostState() }
 
@@ -112,6 +119,7 @@ class MainActivity : ComponentActivity() {
                             onUndo = viewModel::undo,
                             onRedo = viewModel::redo,
                             onOpenProjects = { viewModel.openSheet(EditorSheet.PROJECTS) },
+                            onOpenSettings = viewModel::openSettings,
                             onOpenExport = { viewModel.openSheet(EditorSheet.EXPORT) }
                         )
                     }
@@ -171,6 +179,7 @@ class MainActivity : ComponentActivity() {
                                         onOpenTransitions = { viewModel.openSheet(EditorSheet.TRANSITIONS) },
                                         onOpenKeyframes = { viewModel.openSheet(EditorSheet.KEYFRAMES) },
                                         onOpenSilenceRemoval = viewModel::openSilenceRemoval,
+                                        onOpenAutoCut = viewModel::openAutoCutWizard,
                                         hasSelectedVideoClip = selectedVideoClipId != null,
                                         hasSelectedAudioClip = selectedAudioClipId != null
                                     )
@@ -234,6 +243,7 @@ class MainActivity : ComponentActivity() {
                                     onOpenTransitions = { viewModel.openSheet(EditorSheet.TRANSITIONS) },
                                     onOpenKeyframes = { viewModel.openSheet(EditorSheet.KEYFRAMES) },
                                     onOpenSilenceRemoval = viewModel::openSilenceRemoval,
+                                    onOpenAutoCut = viewModel::openAutoCutWizard,
                                     hasSelectedVideoClip = selectedVideoClipId != null,
                                     hasSelectedAudioClip = selectedAudioClipId != null,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -361,6 +371,44 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        EditorSheet.AUTO_CUT_WIZARD -> {
+                            AutoCutWizardSheet(
+                                currentStep = autoCutStep,
+                                onStepChange = viewModel::setAutoCutStep,
+                                silences = detectedSilences,
+                                isDetectingSilences = isDetectingSilences,
+                                silenceConfig = silenceConfig,
+                                totalProjectDurationMs = project.totalDurationMs,
+                                onUpdateSilenceConfig = viewModel::updateSilenceConfig,
+                                onToggleSilenceInterval = viewModel::toggleSilenceInterval,
+                                onSelectAllSilences = viewModel::selectAllSilences,
+                                onExecuteSilenceRemoval = viewModel::executeSilenceRemoval,
+                                hasGroqApiKey = groqApiKey.isNotBlank(),
+                                hasAcceptedConsent = hasAcceptedGroqConsent,
+                                onAcceptConsent = viewModel::acceptGroqConsent,
+                                onOpenSettings = viewModel::openSettings,
+                                isTranscribing = isTranscribing,
+                                transcriptionProgressText = transcriptionProgressText,
+                                repetitionSuggestions = repetitionSuggestions,
+                                repetitionConfig = repetitionConfig,
+                                onUpdateRepetitionConfig = viewModel::updateRepetitionConfig,
+                                onStartTranscription = { viewModel.startTranscriptionAndRepetitionDetection(context) },
+                                onToggleRepetitionSuggestion = viewModel::toggleRepetitionSuggestion,
+                                onSelectAllRepetitions = viewModel::selectAllRepetitions,
+                                onPreviewCutAudio = viewModel::previewCutAudio,
+                                onExecuteRepetitionCuts = viewModel::executeRepetitionCuts,
+                                onDismiss = viewModel::closeSheet
+                            )
+                        }
+
+                        EditorSheet.SETTINGS -> {
+                            SettingsDialog(
+                                initialApiKey = groqApiKey,
+                                onSaveApiKey = viewModel::saveGroqApiKey,
+                                onDismiss = viewModel::closeSheet
+                            )
+                        }
+
                         EditorSheet.NONE -> {}
                     }
                 }
@@ -381,6 +429,7 @@ private fun EditorTopBar(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onOpenProjects: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenExport: () -> Unit
 ) {
     TopAppBar(
@@ -461,6 +510,18 @@ private fun EditorTopBar(
                 )
             }
 
+            // Definições (Chave API Groq)
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag("settings_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Definições",
+                    tint = TextSecondary
+                )
+            }
+
             // Botão Exportar destacado
             FilledTonalButton(
                 onClick = onOpenExport,
@@ -499,6 +560,7 @@ private fun EditorActionToolbar(
     onOpenTransitions: () -> Unit,
     onOpenKeyframes: () -> Unit,
     onOpenSilenceRemoval: () -> Unit,
+    onOpenAutoCut: () -> Unit,
     hasSelectedVideoClip: Boolean,
     hasSelectedAudioClip: Boolean,
     modifier: Modifier = Modifier
@@ -582,17 +644,30 @@ private fun EditorActionToolbar(
             Text("Cortar", fontSize = 11.sp, color = TextPrimary)
         }
 
-        // AUTO-REMOÇÃO DE PAUSAS / SILÊNCIOS
+        // CORTE AUTOMÁTICO COMPLETO (2 ETAPAS: SILÊNCIOS + GROQ WHISPER)
+        Button(
+            onClick = onOpenAutoCut,
+            colors = ButtonDefaults.buttonColors(containerColor = CineCyan.copy(alpha = 0.28f)),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.testTag("toolbar_auto_cut_button")
+        ) {
+            Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null, tint = CineCyan, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Corte Auto (IA)", fontSize = 11.sp, color = CineCyanGlow, fontWeight = FontWeight.Bold)
+        }
+
+        // AUTO-REMOÇÃO DE PAUSAS / SILÊNCIOS (OFFLINE)
         Button(
             onClick = onOpenSilenceRemoval,
-            colors = ButtonDefaults.buttonColors(containerColor = CineCyan.copy(alpha = 0.25f)),
+            colors = ButtonDefaults.buttonColors(containerColor = StudioSurfaceVariant),
             shape = RoundedCornerShape(8.dp),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
             modifier = Modifier.testTag("toolbar_silence_removal_button")
         ) {
-            Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, tint = CineCyanGlow, modifier = Modifier.size(16.dp))
+            Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, tint = CineCyan, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(4.dp))
-            Text("Auto Pausas", fontSize = 11.sp, color = CineCyanGlow, fontWeight = FontWeight.Bold)
+            Text("Pausas", fontSize = 11.sp, color = TextPrimary)
         }
 
         // SEPARAR ÁUDIO (ATIVO QUANDO HÁ VÍDEO SELECIONADO)

@@ -29,4 +29,9 @@ object TimeFormatter {
         val seconds = totalSeconds % 60
         return String.format(Locale.US, "%02d:%02d", minutes, seconds)
     }
+
+    /**
+     * Atalho para formatar milissegundos em timecode sem precisar passar fps.
+     */
+    fun formatMsToTimecode(ms: Long, fps: Float = 30f): String = formatTimecode(ms, fps)
 }

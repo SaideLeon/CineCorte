@@ -184,4 +184,64 @@ class ExampleUnitTest {
         val totalMs = speechPieces.sumOf { it.trimmedDurationMs }
         assertEquals(7000L, totalMs)
     }
+
+    @Test
+    fun testRepetitionDetectorNormalization() {
+        assertEquals("palavra", com.example.util.RepetitionDetector.normalize("Palavra!"))
+        assertEquals("silencios", com.example.util.RepetitionDetector.normalize("silêncios,"))
+        assertEquals("gague-se", com.example.util.RepetitionDetector.normalize("gague-se..."))
+    }
+
+    @Test
+    fun testPhraseRepetitionDetectionFromUserPrompt() {
+        // Exemplo direto do prompt do utilizador: "e que prendesse que prendesse o ouvinte"
+        val words = listOf(
+            WordTimestamp(word = "e", start = 1.0, end = 1.2),
+            WordTimestamp(word = "que", start = 1.2, end = 1.5),
+            WordTimestamp(word = "prendesse", start = 1.5, end = 2.0),
+            WordTimestamp(word = "que", start = 2.05, end = 2.3),
+            WordTimestamp(word = "prendesse", start = 2.3, end = 2.8),
+            WordTimestamp(word = "o", start = 2.85, end = 3.0),
+            WordTimestamp(word = "ouvinte", start = 3.0, end = 3.5)
+        )
+
+        val config = RepetitionDetectionConfig(
+            ignoreShortWords = true,
+            sensitivity = RepetitionSensitivity.MEDIUM
+        )
+
+        val suggestions = com.example.util.RepetitionDetector.findRepetitions(words, config)
+
+        assertEquals("Deveria detetar exatamente 1 repetição de frase", 1, suggestions.size)
+        val cut = suggestions[0]
+        assertEquals("que prendesse", cut.repeatedText)
+        assertEquals(1200L, cut.startMs)
+        assertEquals(2000L, cut.endMs)
+        assertTrue("A duração deve ser positiva", cut.durationMs > 0)
+    }
+
+    @Test
+    fun testSingleWordRepetitionAndStutter() {
+        val words = listOf(
+            WordTimestamp(word = "eu", start = 0.5, end = 0.8),
+            WordTimestamp(word = "acho", start = 0.85, end = 1.2),
+            WordTimestamp(word = "e", start = 1.25, end = 1.4),
+            WordTimestamp(word = "removesse", start = 1.5, end = 1.9),
+            WordTimestamp(word = "removesse", start = 1.95, end = 2.4),
+            WordTimestamp(word = "este", start = 2.45, end = 2.8)
+        )
+
+        val config = RepetitionDetectionConfig(
+            ignoreShortWords = true,
+            sensitivity = RepetitionSensitivity.MEDIUM
+        )
+
+        val suggestions = com.example.util.RepetitionDetector.findRepetitions(words, config)
+
+        assertEquals(1, suggestions.size)
+        assertEquals("removesse", suggestions[0].repeatedText)
+        assertEquals(1500L, suggestions[0].startMs)
+        assertEquals(1900L, suggestions[0].endMs)
+    }
 }
+

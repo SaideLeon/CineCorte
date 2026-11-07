@@ -28,8 +28,12 @@ Destina-se a criadores de conteúdo, cineastas móveis, videomakers e utilizador
 * **Zoom da Linha do Tempo por Pinça:** Gesto de pinch-to-zoom com dois dedos, expandindo a escala temporal até ao nível de quadros individuais.
 * **Playhead Interativo:** Cursor vermelho vertical com arrasto em tempo real, timecode SMPTE (`hh:mm:ss:ff`) e navegação quadro a quadro (+1 / -1 frame).
 
-### 3. Ferramentas de Edição de Vídeo
-* **Auto-Remoção de Pausas & Silêncios (Destaque):** Deteta e corta automaticamente trechos mortos, pausas longas e respirações na narração do vídeo. Permite calibrar o limiar de silêncio (-50dB a -20dB), duração mínima da pausa (250ms a 1200ms) e margem de segurança (padding) para não decepar as palavras. Exibe o resumo do tempo poupado e elimina todo o silêncio num só clique com *ripple delete*.
+### 3. Ferramentas de Edição e Corte Automático Inteligente
+* **Assistente de Corte Automático em 2 Etapas (Destaque):**
+  - **Etapa A (Remover Silêncios 100% Offline):** Analisa o envelope acústico localmente, deteta pausas mortas e respirações na narração. Permite calibrar limiar de ruído (-50dB a -20dB), duração mínima da pausa e margem de segurança (*padding*) para não cortar fonemas iniciais/finais.
+  - **Etapa B (Transcrição Whisper na Groq & Remoção de Repetições/Gaguez):** Extrai o áudio da linha do tempo e utiliza o modelo `whisper-large-v3-turbo` com marcações temporais palavra a palavra. Um algoritmo determinístico deteta palavras repetidas ("eu eu"), frases gaguejadas de 2 a 4 palavras ("que prendesse que prendesse") e hesitações com hífen ("ca-casa"), mantendo a última ocorrência fluente e marcando a anterior para corte.
+  - **Ecrã de Revisão Interativo:** Apresenta o texto repetido, contexto anterior/posterior, tempo economizado, botão **"Ouvir"** (toca 1s antes e 1s depois do corte para validar a transição acústica) e aplicação atómica em lote com um único passo de Desfazer (*Undo*).
+  - **Segurança de Credenciais:** A chave de API da Groq é inserida pelo utilizador no ecrã de Definições, armazenada de forma segura e ofuscada no dispositivo, sem nunca ser hardcoded.
 * **Cortar (Split):** Divisão instantânea de qualquer clipe no ponto exato do cursor.
 * **Eliminar com Ripple Delete:** Ao apagar um trecho, o espaço fecha-se automaticamente (com opção de manter vão).
 * **Aparar (Trim):** Ajuste fino de pontos de entrada (In) e saída (Out).
