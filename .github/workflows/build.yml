@@ -41,14 +41,33 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # 5. Compila o APK de depuração
+      # 5. Prepara o Keystore e o ambiente (.env)
+      - name: Prepare Keystore and Environment
+        run: |
+          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
+            echo "Restaurando debug.keystore a partir de debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            echo "Gerando novo debug.keystore..."
+            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ ! -f .env ] && [ -f .env.example ]; then
+            echo "Copiando .env.example para .env..."
+            cp .env.example .env
+          fi
+
+      # 6. Compila o APK de depuração
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace -Djava.awt.headless=true
 
-      # 6. Publica como Release (link público direto para o APK)
+      # 7. Publica como Release (link público direto para o APK)
       - name: Create Release with APK
         uses: softprops/action-gh-release@v2
         if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: build-${{ github.run_number }}
+          name: Release CineCorte Build #${{ github.run_number }}
           files: app/build/outputs/apk/debug/app-debug.apk
+
