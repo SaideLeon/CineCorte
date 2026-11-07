@@ -13,6 +13,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      JAVA_OPTS: "-Djava.awt.headless=true"
+      GRADLE_OPTS: "-Djava.awt.headless=true"
 
     steps:
       # 1. Clona o código do repositório
@@ -27,12 +30,12 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
-      # 3. Aceita as licenças do Android SDK
+      # 3. Aceita as licenças do Android SDK e garante as plataformas necessárias
       - name: Configure Android SDK and Accept Licenses
         run: |
           echo "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
 
       # 4. Garante permissão de execução para o Gradle Wrapper
       - name: Grant execute permission for gradlew
@@ -40,11 +43,12 @@ jobs:
 
       # 5. Compila o APK de depuração
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace -Djava.awt.headless=true
 
       # 6. Publica como Release (link público direto para o APK)
       - name: Create Release with APK
         uses: softprops/action-gh-release@v2
+        if: success()
         with:
           tag_name: build-${{ github.run_number }}
           files: app/build/outputs/apk/debug/app-debug.apk
